@@ -67,16 +67,10 @@ int main(int argc, char *argv[])
         fprintf(outfile, "msg_size_bytes,avg_send_us,avg_recv_us,rtt_us,bandwidth_mbps\n");
 
         // Print to console
-        printf("=== Network Ping-Pong Experiment ===\n");
-        printf("Results will be saved to: %s\n", OUTPUT_FILE);
-        printf("Iterations per message size: %d\n", NUM_ITERATIONS);
-        printf("Warmup iterations: %d\n\n", WARMUP_ITERATIONS);
-        printf("%12s %15s %15s %15s %15s\n",
-               "Msg Size", "Avg Send (us)", "Avg Recv (us)",
-               "RTT (us)", "Bandwidth (MB/s)");
-        printf("%-12s %-15s %-15s %-15s %-15s\n",
-               "------------", "---------------", "---------------",
-               "---------------", "---------------");
+        printf("Ping-Pong Test (%d iterations, %d warmup)\n\n", NUM_ITERATIONS, WARMUP_ITERATIONS);
+        printf("%10s %12s %12s %12s %12s\n",
+               "Size (B)", "Send (us)", "Recv (us)", "RTT (us)", "BW (MB/s)");
+        printf("---------- ------------ ------------ ------------ ------------\n");
     }
 
     // Allocate buffers for the largest message size
@@ -95,6 +89,13 @@ int main(int argc, char *argv[])
     memset(recv_buffer, 0, MAX_MSG_SIZE);
 
     MPI_Status status;
+
+    // Variables to track estimates
+    double min_rtt = 1e9;         // For latency estimation (smallest RTT)
+    double max_bandwidth = 0.0;   // For bandwidth estimation (largest bandwidth)
+    int buffer_size_estimate = 0; // For buffer size detection
+    double prev_send_time = 0.0;  // To detect buffer size threshold
+    int buffer_detected = 0;      // Flag for buffer detection
 
     // Iterate over message sizes (1, 2, 4, 8, ..., 1MB)
     for (int msg_size = MIN_MSG_SIZE; msg_size <= MAX_MSG_SIZE; msg_size *= 2)
@@ -173,12 +174,37 @@ int main(int argc, char *argv[])
         if (rank == 0)
         {
             // Print to console
-            printf("%12d %15.2f %15.2f %15.2f %15.2f\n",
+            printf("%10d %12.2f %12.2f %12.2f %12.2f\n",
                    msg_size, avg_send, avg_recv, avg_rtt, bandwidth_mbps);
 
             // Write to CSV file
             fprintf(outfile, "%d,%.2f,%.2f,%.2f,%.2f\n",
                     msg_size, avg_send, avg_recv, avg_rtt, bandwidth_mbps);
+
+            // Track minimum RTT (for latency - use small message sizes)
+            if (msg_size <= 64 && avg_rtt < min_rtt)
+            {
+                min_rtt = avg_rtt;
+            }
+
+            // Track maximum bandwidth (for bandwidth estimation)
+            if (bandwidth_mbps > max_bandwidth)
+            {
+                max_bandwidth = bandwidth_mbps;
+            }
+
+            // Detect buffer size: look for significant jump in send time
+            // When message exceeds buffer, MPI_Send blocks, causing longer send times
+            if (!buffer_detected && prev_send_time > 0)
+            {
+                // If send time increases by more than 50%, buffer threshold likely exceeded
+                if (avg_send > prev_send_time * 1.5 && msg_size >= 1024)
+                {
+                    buffer_size_estimate = msg_size / 2; // Previous size was within buffer
+                    buffer_detected = 1;
+                }
+            }
+            prev_send_time = avg_send;
         }
 
         // Synchronize before next message size
@@ -188,13 +214,39 @@ int main(int argc, char *argv[])
     // Print footer with analysis hints and close file
     if (rank == 0)
     {
+        // Calculate derived estimates
+        double latency_estimate = min_rtt / 2.0;   // One-way latency from RTT
+        double bandwidth_estimate = max_bandwidth; // MB/s
+
+        // Print summary
+        printf("\n--- Results ---\n");
+        printf("Latency: %.2f us (RTT/2 for small msgs)\n", latency_estimate);
+        printf("Bandwidth: %.2f MB/s (max observed)\n", bandwidth_estimate);
+        if (buffer_detected)
+        {
+            printf("Buffer size: ~%d bytes\n", buffer_size_estimate);
+        }
+        else
+        {
+            printf("Buffer size: >1MB (no blocking seen)\n");
+        }
+        printf("\n");
+
+        // Write summary to CSV file
+        fprintf(outfile, "\n");
+        fprintf(outfile, "# Latency: %.2f us\n", latency_estimate);
+        fprintf(outfile, "# Bandwidth: %.2f MB/s\n", bandwidth_estimate);
+        if (buffer_detected)
+        {
+            fprintf(outfile, "# Buffer size: %d bytes\n", buffer_size_estimate);
+        }
+        else
+        {
+            fprintf(outfile, "# Buffer size: >1MB\n");
+        }
+
         fclose(outfile);
-        printf("\nResults saved to: %s\n", OUTPUT_FILE);
-        printf("\n=== Analysis Notes ===\n");
-        printf("- Latency (a): Look at RTT/2 for smallest message sizes\n");
-        printf("- Bandwidth (b): Look at bandwidth for largest message sizes\n");
-        printf("- Buffer size: Look for sudden increase in send time\n");
-        printf("  (when message exceeds buffer, MPI_Send blocks until receiver posts MPI_Recv)\n");
+        printf("Saved to %s\n", OUTPUT_FILE);
     }
 
     // Cleanup
