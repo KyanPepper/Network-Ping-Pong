@@ -7,7 +7,6 @@
  *   - Bandwidth (b): Data transfer rate
  *   - Buffer size: Point where MPI_Send becomes blocking
  *
- * Usage: mpirun -N 2 ./pingpong
  */
 
 #include <stdio.h>

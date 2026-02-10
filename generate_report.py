@@ -90,7 +90,7 @@ with PdfPages("Network_PingPong_Report.pdf") as pdf:
     fig = plt.figure(figsize=(8.5, 11))
 
     # Key results table
-    ax_table = fig.add_axes([0.15, 0.7, 0.7, 0.15])
+    ax_table = fig.add_axes([0.15, 0.78, 0.7, 0.12])
     ax_table.axis("off")
 
     table_data = [
@@ -113,44 +113,60 @@ with PdfPages("Network_PingPong_Report.pdf") as pdf:
 
     # Analysis text - dynamically generated based on actual data
     analysis = f"""
-How I Got These Numbers:
+How These Parameters Were Derived:
 
-Latency: For small messages, most of the time is network overhead rather than
-data transfer. The minimum RTT I measured was {min_rtt:.2f} μs, so one-way
-latency is about {latency:.2f} μs. This is typical for real network communication.
+LATENCY (α = {latency:.2f} μs)
 
-Bandwidth: Peak throughput was {max_bw:.0f} MB/s ({max_bw*8/1000:.1f} Gbps) at larger
-message sizes where data transfer dominates over latency overhead.
+The latency represents the fixed overhead for sending any message, regardless
+of size. To measure this, I used the RTT for small messages (1-64 bytes) where
+the actual data transfer time is negligible compared to overhead.
 
-Buffer Size: MPI buffers small messages so Send() can return immediately. The
-buffer threshold is around {buffer_size}, where send times start increasing
-significantly as MPI switches to rendezvous protocol.
+    Minimum RTT observed: {min_rtt:.2f} μs
+    One-way latency = RTT / 2 = {latency:.2f} μs
 
-
-Communication Model:
-
-    T(n) = α + n/β
-
-Where T(n) is transfer time for n bytes, α = {latency:.2f} μs, β = {max_bw:.0f} MB/s
+This overhead includes: initiating the send operation, network protocol
+processing, and receiver-side handling before data is available.
 
 
-Notes:
+BANDWIDTH (β = {max_bw:.0f} MB/s)
 
-- Latency of {latency:.0f} μs is consistent with network communication
-- Bandwidth of ~{max_bw/1000:.1f} GB/s suggests a fast interconnect (InfiniBand or similar)
-- Bandwidth increases with message size as fixed overhead becomes less significant
+Bandwidth measures the data transfer rate once the fixed overhead is excluded.
+It is calculated as: Bandwidth = (2 × message_size) / RTT
+
+The factor of 2 accounts for round-trip (data sent both directions). Peak
+bandwidth occurs at larger message sizes where transfer time dominates.
+
+    Peak observed: {max_bw:.0f} MB/s = {max_bw*8/1000:.1f} Gbps
+
+
+BUFFER SIZE ({buffer_size})
+
+MPI uses an internal buffer for small messages, allowing MPI_Send to return
+before the receiver calls MPI_Recv (eager protocol). For messages exceeding
+this buffer, MPI_Send must wait for the receiver (rendezvous protocol).
+
+The buffer threshold was identified by finding where send times increase
+sharply between consecutive message sizes.
+
+
+COMMUNICATION MODEL
+
+    T(n) = α + n/β = {latency:.2f} + n/{max_bw:.0f}  (μs)
+
+This linear model predicts the time T to send n bytes as the sum of fixed
+latency α plus the transfer time n/β.
 """
 
     fig.text(
-        0.1,
-        0.62,
+        0.08,
+        0.72,
         analysis,
-        fontsize=10,
+        fontsize=9,
         verticalalignment="top",
         fontfamily="monospace",
-        linespacing=1.4,
+        linespacing=1.3,
     )
-    fig.text(0.5, 0.88, "Results Summary", fontsize=14, fontweight="bold", ha="center")
+    fig.text(0.5, 0.93, "Results Summary", fontsize=14, fontweight="bold", ha="center")
 
     pdf.savefig(fig)
     plt.close()
