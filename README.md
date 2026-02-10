@@ -11,7 +11,12 @@ mpicc -o pingpong main.c
 ## Run
 
 ```bash
-mpirun -np 2 ./pingpong
+mpirun -np 2 -N 2 ./pingpong
+or 
+mpiexec -np 2 ./pingpong
+or
+srun -N 2 -n 2 ./pingpong
+
 ```
 
 This outputs results to `results.csv`.
